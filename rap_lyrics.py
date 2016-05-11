@@ -197,16 +197,6 @@ def normalizeLyrics(lyrics):
 
     return lyrics
 
-def yearSnapshot(df):
-    years = set(df['year'])
-    #flat map
-    yearSnaps = pd.DataFrame(columns = ('year','bigrams'))
-    for curYear in range(int(min(years)),int(max(years)+1)):
-        bigrams = [item for sublist in df[df['year']==curYear]['bigrams'] for item in sublist]
-        yearSnaps = yearSnaps.append({'year':curYear,'bigrams':bigrams}, ignore_index=True)
-
-    return yearSnaps
-
 def monthSnapshot(df):
     '''
     returns a df with bigrams corresponding to each month of each year
@@ -231,27 +221,29 @@ def crossEntropy(df,snapshots):
     populates each song in the df with a cross-entropy value
     '''
     years = set(df['year'])
-    artists = set(df['artist'])
-       
-    for artist in artists:
-        artistYears = set(df[df['artist']==artist]['year'])
-
-        for year in years:
+    
+    for year in years:
+        #get bigrams from year AKA yearly snapshot
+        snapshot = snapshots[snapshots['year']==year]['bigrams']
+        snapshot = [item for sublist in snapshot for item in sublist] #flatmap
+        snapshot = [item for sublist in snapshot for item in sublist] #flatmap
+        snapshot = Counter(snapshot)   
+        #get artists active in that year
+        artists = set(df[df['year']==year]['artist'])
+        for artist in artists:
+            artistYears = set(df[df['artist']==artist]['year'])
+        
             if year not in artistYears:
-                HSLM = None
-            else:
+                df[(['artist']==artist) & (['year']==year) & (['title']==song),'HSLMy']=None
+            else:               
                 songs = df[(df['artist']==artist) & (df['year']==year)]['title'] #title of all songs by artist that year
                 for song in songs:
                         #get bigrams from song
                         bigrams = df[(df['artist']==artist) & (df['year']==year) & (df['title']==song)]['bigrams'] #set of bigrams in that song
                         bigrams = [item for sublist in bigrams for item in sublist] #flatmap
                         bigrams = set(bigrams)
-                        #get bigrams from year
-                        snapshot = snapshots[snapshots['year']==year]['bigrams']
-                        snapshot = [item for sublist in snapshot for item in sublist] #flatmap
-                        snapshot = [item for sublist in snapshot for item in sublist] #flatmap
-                        snapshot = Counter(snapshot)
-                        df[(df['artist']==artist) & (df['year']==year) & (df['title']==song)]['HSLMy'] = HpSLMy(bigrams,snapshot)
+
+                        df[(['artist']==artist) & (['year']==year) & (['title']==song),'HSLMy'] = HpSLMy(bigrams,snapshot)
     return df
 
 def HpSLMy(bigrams,snapshot):
