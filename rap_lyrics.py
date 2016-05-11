@@ -15,7 +15,8 @@ from collections import Counter
 from datetime import datetime
 from langdetect import detect # language detector
 from fuzzywuzzy import fuzz
-from fuzzywuzzy import process
+from fuzzywuzzy import 
+from math import log
 
 rg = '/Users/markostamenovic/GoogleDrive/Education/UR Spring 2016/Linguistics for Data Science - CSC/Final Project/rg_local_final.json'
 az = '/Users/markostamenovic/GoogleDrive/Education/UR Spring 2016/Linguistics for Data Science - CSC/Final Project/lyrics_az.json'
@@ -27,6 +28,7 @@ def rg():
     rg_rap['year']=rg_rap['year'].apply(lambda x: x.replace('}','')) #clean it up
     rg_rap['datetime']=rg_rap['year'].apply(lambda x: datetime.strptime(x, '%Y-%m-%d')) #convert string date to dateime
     rg_rap['year']=rg_rap['datetime'].apply(lambda x: x.year) #put year in it's own column for simplicity
+    rg_rap['month']=rg_rap['datetime'].apply(lambda x: x.month) #same with month
     rg_rap = rg_rap[rg_rap['year'] > 1979] #stuff before 1979 isn't rap it's all james brown etc
     rg_rap['lang'] = rg_rap['lyrics'].apply(lambda x: langDetect(x)) #get english songs
     rg_rap = rg_rap[rg_rap['lang']=='en'] #banish nonenglish songs
@@ -42,10 +44,15 @@ def rg():
     rg_rap['lyrics'] = rg_rap['lyrics'].apply(lambda x: [i.lower() for i in x])
     #remove ' lyrics' from song title
     rg_rap['title'] = rg_rap['title'].apply(lambda x: x.replace(' lyrics',''))
-    #disambiguate featured artists from original songs using parseCollabs function
+    #disambiguate featured lyrics from original songs using parseCollabs function
     ogartistVerseDf,guestVerseDf = parseCollabs(rg_rap)
     rg_disam = pd.DataFrame(columns=originalDF.columns)
-
+    #normalize all lyrics
+    rg_disam['lyrics'] = rg_disam['lyrics'].apply(lambda x: normalizeLyrics(x))
+    #get set of all artists
+    artists = set(rg_disam['artist']) #get set of artists
+    #get bigrams
+    rg_disam['bigrams'] = rg_disam['lyrics'].apply(lambda x: findBigrams(x))
 
 def az():
 
@@ -87,19 +94,7 @@ def az():
 
     breaksd.most_common(20)
 
-def disambiguateCollabs():
-    #check for pattern
-    pattern = r"_\[.*\]_"
-        #check if pattern is a known nonintersting pattern
-            #if not get artist name from pattern
-            #get lyrics from between patterns
-            #create new row with same information as current row
-            #overwrite new row artist and lyrics from this pattern
-            #delete lyrics and pattern title from lyrics 
-            #(maybe just save indices to delete after iterating through list)
-    
-    
-#create a frequency dict from a list    
+#convert a list to a frequency vector dictionary 
 def list2dict(list):
     d = {}
     for i in list:
@@ -121,8 +116,7 @@ def langDetect(x):
 def downcase(x):
     return [i.lower() for i in x]
         
-
-#parse collaborations for the rg corpus        
+#parse collaborations for the rg corpus to separate guest verses out of original artist verse     
 def parseCollabs(originalDF):
     
     pattern = ": (.*)  " #guest verses are always denoted as "verse 1: ARTIST " so we regex to just get artist
@@ -168,4 +162,111 @@ def parseCollabs(originalDF):
 
     return ogartistVerseDf,guestVerseDf
             
-            
+def findBigrams(input_list):
+    input_list = input_list.split(' ')
+    return zip(input_list, input_list[1:])
+
+def normalizeLyrics(lyrics):
+    #convert from list of lists to string
+    lyrics = ' '.join(lyrics)
+    # special cases (English...)
+    lyrics = lyrics.replace("'m ", " am ")
+    lyrics = lyrics.replace("'re ", " are ")
+    lyrics = lyrics.replace("'ve ", " have ")
+    lyrics = lyrics.replace("'d ", " would ")
+    lyrics = lyrics.replace("'ll ", " will ")
+    lyrics = lyrics.replace(" he's ", " he is ")
+    lyrics = lyrics.replace(" she's ", " she is ")
+    lyrics = lyrics.replace(" it's ", " it is ")
+    lyrics = lyrics.replace(" ain't ", " is not ")
+    lyrics = lyrics.replace("n't ", " not ")
+    lyrics = lyrics.replace("'s ", " ")
+    # remove boring punctuation and weird signs
+    punctuation = (',', "'", '"', ",", ';', ':', '.', '?', '!', '(', ')',
+                   '{', '}', '/', '\\', '_', '|', '-', '@', '#', '*')
+    for p in punctuation:
+        lyrics = lyrics.replace(p, '')
+    #remove fake words 
+    fake_words = ['verse [0-9]','verse[0-9]','intro','outro', 'hook', 'x[0-9]','[0-9]x','chorus','verse one',
+    'verse two','verse three','verse four','verse five','verse six','verse seven','verse eight',
+    'verse nine','verse ten','speaking','sample',]
+    for f in fake_words:
+        lyrics = re.sub(f,'',lyrics)
+    #remove     duplicate     whitespace
+    lyrics = re.sub(' +',' ',lyrics)
+
+    return lyrics
+
+def yearSnapshot(df):
+    years = set(df['year'])
+    #flat map
+    yearSnaps = pd.DataFrame(columns = ('year','bigrams'))
+    for curYear in range(int(min(years)),int(max(years)+1)):
+        bigrams = [item for sublist in df[df['year']==curYear]['bigrams'] for item in sublist]
+        yearSnaps = yearSnaps.append({'year':curYear,'bigrams':bigrams}, ignore_index=True)
+
+    return yearSnaps
+
+def monthSnapshot(df):
+    '''
+    returns a df with bigrams corresponding to each month of each year
+    this is equivalent to a monthly snapshot but can also be used as a yearly snapshot
+    '''
+    years = set(df['year'])
+    #flat map
+    monthSnaps = pd.DataFrame(columns = ('year','month','bigrams'))
+    for curYear in range(int(min(years)),int(max(years)+1)):
+        bigrams=[]
+        for month in range(1,13):
+            for day in range(1,monthrange(curYear,month)[1]+1):
+                bigram = [item for sublist in df[df['datetime']==datetime(curYear,month,day)]['bigrams'] for item in sublist]
+                if bigram:
+                    bigrams.append([item for sublist in df[df['datetime']==datetime(curYear,month,day)]['bigrams'] for item in sublist])
+        monthSnaps = monthSnaps.append({'year':curYear,'month':month,'bigrams':bigrams}, ignore_index=True)
+
+    return monthSnaps
+
+def crossEntropy(df,snapshots):
+    '''
+    populates each song in the df with a cross-entropy value
+    '''
+    years = set(df['year'])
+    artists = set(df['artist'])
+       
+    for artist in artists:
+        artistYears = set(df[df['artist']==artist]['year'])
+
+        for year in years:
+            if year not in artistYears:
+                HSLM = None
+            else:
+                songs = df[(df['artist']==artist) & (df['year']==year)]['title'] #title of all songs by artist that year
+                for song in songs:
+                        #get bigrams from song
+                        bigrams = df[(df['artist']==artist) & (df['year']==year) & (df['title']==song)]['bigrams'] #set of bigrams in that song
+                        bigrams = [item for sublist in bigrams for item in sublist] #flatmap
+                        bigrams = set(bigrams)
+                        #get bigrams from year
+                        snapshot = snapshots[snapshots['year']==year]['bigrams']
+                        snapshot = [item for sublist in snapshot for item in sublist] #flatmap
+                        snapshot = [item for sublist in snapshot for item in sublist] #flatmap
+                        snapshot = Counter(snapshot)
+                        df[(df['artist']==artist) & (df['year']==year) & (df['title']==song)]['HSLMy'] = HpSLMy(bigrams,snapshot)
+    return df
+
+def HpSLMy(bigrams,snapshot):
+    '''
+    calculates the corss-entropy of one song with the snapshot model
+    snapshot model = either month or year of songs
+    with laplacian (plus one) smoothing
+    '''
+    HSLM=0.0
+    for bigram in bigrams:
+        logPSLM = log(snapshot[bigram]+1)
+        HSLM += logPSLM
+    if len(bigrams)==0:
+        HSLM=0
+    else:
+        HSLM /= (-1*len(bigrams))
+
+    return HSLM
