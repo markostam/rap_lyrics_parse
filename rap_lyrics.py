@@ -34,8 +34,8 @@ import networkx as nx
 
 
 
-rg = '/Users/markostamenovic/GoogleDrive/Education/UR Spring 2016/Linguistics for Data Science - CSC/Final Project/rg_local_final.json'
-az = '/Users/markostamenovic/GoogleDrive/Education/UR Spring 2016/Linguistics for Data Science - CSC/Final Project/lyrics_az.json'
+rg = '/path/to/rg_local_final.json'
+az = '/path/to/lyrics_az.json'
 def rg():
     '''
     data cleaning for rap genius corpus
