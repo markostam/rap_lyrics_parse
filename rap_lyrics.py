@@ -20,7 +20,7 @@ from collections import Counter
 from datetime import datetime
 from langdetect import detect # language detector
 from fuzzywuzzy import fuzz #fuzzy language detector
-from fuzzywuzzy import 
+from fuzzywuzzy import process
 from math import log
 from nltk.corpus import stopwords
 from sklearn.feature_extraction.text import TfidfVectorizer
@@ -48,7 +48,8 @@ def rg():
     rg_rap['datetime']=rg_rap['year'].apply(lambda x: datetime.strptime(x, '%Y-%m-%d')) #convert string date to dateime
     rg_rap['year']=rg_rap['datetime'].apply(lambda x: x.year) #put year in it's own column for simplicity
     rg_rap['month']=rg_rap['datetime'].apply(lambda x: x.month) #same with month
-    rg_rap = rg_rap[rg_rap['year'] > 1979] #stuff before 1979 isn't rap it's all james brown etc
+    rg_rap = rg_rap[rg_rap['year'] > 1978] #stuff before 1979 isn't rap it's all james brown etc
+    rg_rap = rg_rap[rg_rap['year'] < 2017] #clear out mislabeled years
     rg_rap['lang'] = rg_rap['lyrics'].apply(lambda x: langDetect(x)) #get english songs
     rg_rap = rg_rap[rg_rap['lang']=='en'] #banish nonenglish songs
     #downcase
@@ -237,6 +238,24 @@ def buildWordFreqsYear(df):
         #yearFreqs = yearFreqs.append({'year':year,'wordfreqs':freqDist},ignore_index=True)
         yearFreqs.append([year,freqDist])
     return yearFreqs
+
+def buildWordFreqsMonth(df):
+    '''
+    builds a new df containing 
+    word freq vectors over each month
+    '''
+    from nltk.corpus import stopwords
+    #wordFreqs=[]
+    wordFreqs = pd.DataFrame(columns = ('year','month','word_freqs'))
+    stop = stopwords.words('english')
+    for year in set(df['year']):
+        for month in set(df['month']):
+            allwords = ''.join([i for i in df[(df['month']==month) & (df['year']==year)]['lyrics']]).split()
+            allwords = [i for i in allwords if i not in stop]
+            freqDist = Counter(allwords)
+            wordFreqs = wordFreqs.append({'year':year,'month':month,'word_freqs':freqDist},ignore_index=True)
+            #wordFreqs.append([year,month,freqDist])
+    return wordFreqs
 
 def normalizeLyrics(lyrics):
     '''
@@ -458,6 +477,48 @@ def plotAllLMplot():
     #fig.set_xlim([0,100])
     plt.show()
 
+def plotWordFreqMonth(df,wordlist):
+    '''
+    wordlist must be a list of lists for multiple words, 
+    multiple words of the same meaning
+    or even for only one word.
+    eg: 
+    plotWordFreqLong(rg_disam,[['swag']])
+    plotWordFreqLong(rg_disam,[['swag'],['style']])
+    plotWordFreqLong(rg_disam,[['bands','bandz','band'],['racks','rack']])
+    
+    '''
+    ###################################
+    if not wordFreqs:
+        wordFreqs = buildWordFreqsMonth(df) 
+    # calculating wordfreq vector for every query is very slow
+    # precalculate this if you are doing a bunch of graphing
+    ###################################
+    freqList=[]
+    #calculate freqdist by year for each word
+    for words in wordlist:
+        count=1
+        for word in words:
+            if count == 1:
+                stem1 = [wordFreqs[yearindex][1][word]/float(sum(wordFreqs[yearindex][1].values())) for yearindex in xrange(len(wordFreqs))]
+                count+=1
+            else:
+                stem2 = [wordFreqs[yearindex][1][word]/float(sum(wordFreqs[yearindex][1].values())) for yearindex in xrange(len(wordFreqs))]
+                stem1 = map(add, stem1, stem2)
+        freqList.append(stem1)
+    for wordindex in xrange(len(wordlist)):
+        plt.plot([i for i in (set(rg_rap['year']))],freqList[wordindex], label=wordlist[wordindex][0])
+        #plt.plot(range(1995,2016),freqList[wordindex][11:-1], label=wordlist[wordindex][0])
+        #plt.plot(label=wordlist[wordindex][0])    
+
+    plt.title('Word Popularity vs. Year')
+    plt.xlim([1979,2017])
+    plt.xlabel('Year')
+    plt.ylabel('Normalized Word Frequency')
+    plt.legend(loc='center left', bbox_to_anchor=(1, 0.5))
+    plt.show()
+
+
 def plotWordFreqLong(df,wordlist):
     '''
     wordlist must be a list of lists for multiple words, 
@@ -470,7 +531,8 @@ def plotWordFreqLong(df,wordlist):
     
     '''
     ###################################
-    yearFreqs = buildWordFreqsYear(df) 
+    if not yearFreqs:
+        yearFreqs = buildWordFreqsYear(df) 
     # calculating wordfreq vector for every query is very slow
     # precalculate this if you are doing a bunch of graphing
     ###################################
@@ -487,10 +549,12 @@ def plotWordFreqLong(df,wordlist):
                 stem1 = map(add, stem1, stem2)
         freqList.append(stem1)
     for wordindex in xrange(len(wordlist)):
-        plt.plot(range(1995,2016),freqList[wordindex][11:-1], label=wordlist[wordindex][0])
-    
+        plt.plot([i for i in (set(rg_rap['year']))],freqList[wordindex], label=wordlist[wordindex][0])
+        #plt.plot(range(1995,2016),freqList[wordindex][11:-1], label=wordlist[wordindex][0])
+        #plt.plot(label=wordlist[wordindex][0])    
+
     plt.title('Word Popularity vs. Year')
-    plt.xlim([1994,2016])
+    plt.xlim([1979,2017])
     plt.xlabel('Year')
     plt.ylabel('Normalized Word Frequency')
     plt.legend(loc='center left', bbox_to_anchor=(1, 0.5))
